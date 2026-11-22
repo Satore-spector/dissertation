@@ -1,0 +1,69 @@
+$IDN
+   COUNTRY               date            TIME_PERIOD           reer_cpi     
+ Length:252         Min.   :1987-01-01   Length:252         Min.   : 36.36  
+ Class :character   1st Qu.:1992-03-24   Class :character   1st Qu.: 79.82  
+ Mode  :character   Median :1997-06-16   Mode  :character   Median : 98.44  
+                    Mean   :1997-06-16                      Mean   : 93.00  
+                    3rd Qu.:2002-09-08                      3rd Qu.:108.62  
+                    Max.   :2007-12-01                      Max.   :118.35  
+   fx_usd_eop     fx_reserves        net_foreign_assets  m2_broad_money     
+ Min.   : 1633   Min.   :7.940e+12   Min.   :6.425e+12   Min.   :2.789e+13  
+ 1st Qu.: 2021   1st Qu.:2.862e+13   1st Qu.:2.001e+13   1st Qu.:1.028e+14  
+ Median : 2524   Median :7.306e+13   Median :5.572e+13   Median :3.120e+14  
+ Mean   : 5432   Mean   :1.616e+14   Mean   :1.290e+14   Mean   :5.030e+14  
+ 3rd Qu.: 9077   3rd Qu.:2.945e+14   3rd Qu.:2.261e+14   3rd Qu.:8.563e+14  
+ Max.   :14900   Max.   :5.409e+14   Max.   :5.104e+14   Max.   :1.646e+15  
+ private_credit      reserve_money      
+ Min.   :2.303e+13   Min.   :7.901e+12  
+ 1st Qu.:1.215e+14   1st Qu.:1.313e+13  
+ Median :2.562e+14   Median :4.309e+13  
+ Mean   :3.050e+14   Mean   :9.242e+13  
+ 3rd Qu.:4.223e+14   3rd Qu.:1.489e+14  
+ Max.   :9.942e+14   Max.   :4.384e+14  
+
+$MYS
+   COUNTRY               date            TIME_PERIOD           reer_cpi     
+ Length:252         Min.   :1987-01-01   Length:252         Min.   : 86.04  
+ Class :character   1st Qu.:1992-03-24   Class :character   1st Qu.: 97.59  
+ Mode  :character   Median :1997-06-16   Mode  :character   Median :113.02  
+                    Mean   :1997-06-16                      Mean   :111.28  
+                    3rd Qu.:2002-09-08                      3rd Qu.:123.58  
+                    Max.   :2007-12-01                      Max.   :142.77  
+   fx_usd_eop     fx_reserves        net_foreign_assets  m2_broad_money     
+ Min.   :2.439   Min.   :1.587e+10   Min.   :1.459e+10   Min.   :7.128e+10  
+ 1st Qu.:2.570   1st Qu.:3.562e+10   1st Qu.:2.803e+10   1st Qu.:1.354e+11  
+ Median :2.787   Median :7.159e+10   Median :6.084e+10   Median :3.291e+11  
+ Mean   :3.170   Mean   :1.085e+11   Mean   :9.540e+10   Mean   :3.368e+11  
+ 3rd Qu.:3.800   3rd Qu.:1.300e+11   3rd Qu.:1.248e+11   3rd Qu.:4.935e+11  
+ Max.   :4.567   Max.   :3.452e+11   Max.   :3.098e+11   Max.   :7.845e+11  
+ private_credit      reserve_money      
+ Min.   :6.925e+10   Min.   :1.004e+10  
+ 1st Qu.:1.537e+11   1st Qu.:2.585e+10  
+ Median :4.048e+11   Median :4.068e+10  
+ Mean   :3.283e+11   Mean   :3.927e+10  
+ 3rd Qu.:4.687e+11   3rd Qu.:5.159e+10  
+ Max.   :6.826e+11   Max.   :8.851e+10  
+
+$PHL
+   COUNTRY               date            TIME_PERIOD           reer_cpi     
+ Length:252         Min.   :1987-01-01   Length:252         Min.   : 74.07  
+ Class :character   1st Qu.:1992-03-24   Class :character   1st Qu.: 86.05  
+ Mode  :character   Median :1997-06-16   Mode  :character   Median : 93.27  
+                    Mean   :1997-06-16                      Mean   : 94.20  
+                    3rd Qu.:2002-09-08                      3rd Qu.:100.13  
+                    Max.   :2007-12-01                      Max.   :124.25  
+   fx_usd_eop     fx_reserves        net_foreign_assets   m2_broad_money     
+ Min.   :20.44   Min.   :3.011e+10   Min.   :-1.328e+11   Min.   :1.610e+11  
+ 1st Qu.:25.75   1st Qu.:1.185e+11   1st Qu.:-4.617e+10   1st Qu.:4.273e+11  
+ Median :29.39   Median :3.140e+11   Median : 1.094e+11   Median :1.300e+12  
+ Mean   :36.51   Mean   :4.697e+11   Mean   : 2.697e+11   Mean   :1.420e+12  
+ 3rd Qu.:50.62   3rd Qu.:8.526e+11   3rd Qu.: 4.461e+11   3rd Qu.:2.213e+12  
+ Max.   :56.36   Max.   :1.423e+12   Max.   : 1.712e+12   Max.   :3.607e+12  
+ private_credit      reserve_money      
+ Min.   :8.917e+10   Min.   :6.477e+10  
+ 1st Qu.:2.396e+11   1st Qu.:1.482e+11  
+ Median :1.200e+12   Median :2.509e+11  
+ Mean   :8.469e+11   Mean   :2.781e+11  
+ 3rd Qu.:1.307e+12   3rd Qu.:3.285e+11  
+ Max.   :1.585e+12   Max.   :1.192e+12  
+

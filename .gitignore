@@ -1,2 +1,26 @@
-﻿# Data files (too large / generated data - do not commit)
-data/
+﻿# Secrets / local environment
+.Renviron
+.Rhistory
+.RData
+.Rproj.user/
+
+# Data (raw and processed) - do not commit
+data/**
+!data/**/
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Rendered files
+*.html
+*.pdf
+*.docx
+*.nb.html
+
+# R package/library caches
+renv/library/
+renv/staging/
+renv/python/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db

@@ -1,0 +1,5 @@
+criterion,lag
+AIC(n),9
+HQ(n),9
+SC(n),1
+FPE(n),9

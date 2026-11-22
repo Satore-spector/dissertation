@@ -1,0 +1,5 @@
+COUNTRY,date,TIME_PERIOD,reer_cpi,fx_usd_eop,fx_reserves,net_foreign_assets,m2_broad_money,private_credit,reserve_money
+IDN,0,0,0,0,99,100,100,100,99
+MYS,0,0,0,0,104,104,104,104,104
+PHL,0,0,0,0,108,118,118,118,108
+THA,0,0,84,0,99,100,100,100,99

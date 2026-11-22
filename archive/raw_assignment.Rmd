@@ -1,0 +1,564 @@
+---
+title: Agent Based modeling approach to forecasting Asian Financial Crisis
+author: 
+  - name: Teerth Narang
+    edu: Msc Economics, Data Analytics
+degree: Master of Science in Economics
+institute: Symbiosis School of Economoics
+department: DA
+location: SB Road, Pune
+date:
+  - year: 2026
+    month: October
+
+# uncomment this line to produce HTML and PDF in RStudio:
+knit: pagedown::chrome_print
+---
+# NOTE
+this is the raw file that i worked on through the assingment process. as such it is not formatted in the slightest. this is simply for proof of actually having run the codes. some codes may exist here that are not there in the final. this is because the AI restructured some of it and removed redundencies(such as descriptions and prints that i had used for refrence)
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      fig.align = 'center')
+```
+
+# Loading library {-}
+
+```{r}
+library(WDI) # For ountry level macroeconomic variables
+library(imf.data) # to fill gaps in WDI data
+library(tidyverse) # For data processing and Visualisation
+library(writexl) # data exporting
+library(janitor) # data cleaning and date and time processing
+library(stringr) # string searching
+library(tidyr) # also for data cleaning
+library(wbstats) # searching WDI
+library(data.table) #multi thread data imports
+library(pandoc)
+library(fredr)
+library(zoo) #specifically for the merging and interpolation part
+library(lmtest)
+library(tseries)
+library(vars)
+library(pROC)
+library(ggplot2)
+library(lmtest)
+
+API <- Sys.getenv("FRED_API_KEY") # my api key. im uploading to github so not gonna paste here
+fredr_set_key(API)
+setwd("C:\\Research&Projects\\data")
+```
+
+# Data Importing {.chapter}
+To begin with we start the data importation process with imf data 
+
+```{r}
+df <- list_datasets()
+head(df)
+vars <- c("Effective Exchange rate", "Exchange Rate", "MFS")
+pattern <- paste(vars, collapse = "|")
+
+id <- df |>
+  filter(
+    str_detect(
+      name, regex(pattern, ignore_case = TRUE)
+    ),
+    str_detect(
+      name, "2026", negate = FALSE
+    )
+  )
+
+print(id)
+```
+
+There seem to be 31 variables relevant to our parameters for the analysis we need to focus on the following
+- EER -> Effective_exchange_rate
+- ER -> Bilateral Exchange rate vs USD #this is relevant owing to the pegged exchange rate system that we were dealing with pre AFC
+- MFS-NSRF - legacy reserves data
+- NSRF_11 - Foriegn Assets. This also acts as a proxy for foriegn exchange reserves. 
+- NSRF_31N - Net foriegn assets in the entire banking system
+- NSRF_35L - Money Plus quasi money
+- NSRF_22D - Claims of Private Sector -> This is effectively the credit
+- NSRF_14_ - Reserves/Base Money
+
+```{r}
+COUNTRIES <- c("THA", "IDN", "MYS", "PHL")
+START_DATE <- "1987-01-01"
+END_DATE <- "2017-12-31"
+
+series_spec <- list(
+  list(
+    label = "reer_cpi",
+    dataflow = "EER",
+    filters = list(INDICATOR = "REER_IX_RY2010_ACW_RCPI", FREQUENCY = "M")
+  ),
+  list(
+    label = "fx_usd_eop",
+    dataflow = "ER",
+    filters = list(
+      INDICATOR = "XDC_USD", TYPE_OF_TRANSFORMATION = "EOP_RT",
+      FREQUENCY = "M"
+    )
+  ),
+  list(
+    label = "fx_reserves",
+    dataflow = "MFS_NSRF",
+    filters = list(INDICATOR = "NSRF_11", FREQUENCY = "M")
+  ),
+  list(
+    label = "net_foreign_assets",
+    dataflow = "MFS_NSRF",
+    filters = list(INDICATOR = "NSRF_31N", FREQUENCY = "M")
+  ),
+  list(
+    label = "m2_broad_money",
+    dataflow = "MFS_NSRF",
+    filters = list(INDICATOR = "NSRF_35L", FREQUENCY = "M")
+  ),
+  list(
+    label = "private_credit",
+    dataflow = "MFS_NSRF",
+    filters = list(INDICATOR = "NSRF_22D", FREQUENCY = "M")
+  ),
+  list(
+    label = "reserve_money",
+    dataflow = "MFS_NSRF",
+    filters = list(INDICATOR = "NSRF_14_", FREQUENCY = "M")
+  )
+)
+
+#creating a custom pull function
+
+pull_dat <- function(spec, countries = COUNTRIES, start = START_DATE, end = END_DATE){
+  f <- c(list(COUNTRY = countries), spec$filters)
+
+  result <- tryCatch({
+    get_data(spec$dataflow,
+      filters      = f,
+      start_period = start,
+      end_period   = end
+    )
+  }, error = function(e) {
+    message(sprintf("[%s / %s] failed: %s", spec$label, spec$dataflow, conditionMessage(e)))
+    NULL
+  })
+
+  if (is.null(result) || nrow(result) == 0) {
+    message(sprintf("[%s / %s] returned no rows", spec$label, spec$dataflow))
+    return(NULL)
+  }
+
+  result |>
+    mutate(series = spec$label, dataflow = spec$dataflow)
+}
+
+#pulling data
+pulled <- map(series_spec, pull_dat)
+names(pulled) <- map_chr(series_spec, "label")
+pulled <- compact(pulled)
+```
+
+Data availability for these countries is notoriously spotty along this time period as such, before we trust any data we need to check the coverage
+
+```{r}
+coverage_report <- map_dfr(pulled, function(d){
+  d |>
+  group_by(series, dataflow, COUNTRY) |>
+  summarise(first_obs = min(TIME_PERIOD), Last_obs = max(TIME_PERIOD),
+  n_obs = n(), .groups = "drop")
+})
+
+print(coverage_report, n = Inf)
+```
+This confirms that overall data availability is within the confines of our selected period.
+
+```{r}
+panel_long <- bind_rows(pulled) |>
+  select(COUNTRY, series, dataflow, TIME_PERIOD, OBS_VALUE)
+
+panel_wide <- panel_long |>
+  select(COUNTRY, series, TIME_PERIOD, OBS_VALUE) |>
+  pivot_wider(names_from = series, values_from = OBS_VALUE)
+```
+
+following the data being pulled we need to check the availability of data
+
+```{r}
+#coding a custom summary function so that i can summarise panel statistics. 
+summary_wide <- function(d = panel_wide, c = COUNTRIES) {
+  out <- list()
+  for (i in c) {
+    out[[i]] <- d |>
+      filter(COUNTRY == i) |>
+      summary()
+  }
+  return(out)
+}
+
+check <- summary_wide(panel_wide, COUNTRIES)
+
+print(check)
+```
+
+Here we see a concerning trend. There seems to be missing columns for Thailand & Indonesia which is likely due to data being unavailable. Aditionally there are missing data points for abour 2 years for Philippines. 
+For now lets save the data
+```{r}
+panel_imf <- clean_names(panel_wide)
+dir.create("data/IMF", recursive = TRUE, showWarnings = FALSE)
+write.csv(panel_imf, "data\\IMF\\IMF_VARS", row.names = FALSE, na = "NA")
+```
+
+checking the US Fred data base gives us a solution to our missing variables in Indonesia. Their series has both, BIS based real effective exchange rate from 1994 onwards, and quarterly exchange rate pre 1994. we can interpolate pre 1994 data using it. this shouldn comprimise our agent based model since the key point of inflection is 1997 and 1998. Thailand still requires manual attraction
+
+```{r}
+reer_oecd_idn <- fredr(
+  series_id = "CCRETT01IDQ661N",
+  observation_start = as.Date("1980-01-01"),
+  observation_end = as.Date("1993-12-31")
+) |>
+  mutate(country = "IDN", source = "OECD", frequency = "quarterly")
+
+reer_bis_idn <- fredr(
+  series_id = "RBIDBIS",
+  observation_start = as.Date("1994-01-01"),
+  observation_end = as.Date("2017-12-31")
+) |>
+  mutate(value = value / mean(value[format(date, "%Y") == "2010"]) * 100) |>
+  mutate(country = "IDN", source = "BIS", frequency = "monthly")
+```
+
+We are rebasing because the two sources do not share a base year. OECD's series is indexed with its own reference period set to 100, and BIS indexes its series with a different reference period set to 100 (2020 for this BIS series specifically). These are two different scales measuring the same underlying concept, so the raw numbers are not directly comparable. If the two series were spliced together as they are, an artificial jump would appear at the point where OECD ends and BIS begins, not because the real exchange rate actually moved in January 1994, but because the two indices do not start from the same 100. Rebasing puts both series on a shared scale before splicing, so the only changes that remain in the final series reflect real movements in the exchange rate rather than an artifact of which organization compiled each half.
+
+```{r}
+oecd_anchor <- reer_oecd_idn |>
+  filter(date == max(date)) |>
+  pull(value)
+bis_anchor <- reer_bis_idn |>
+  filter(date == min(date)) |>
+  pull(value)
+
+reer_oecd_idn <- reer_oecd_idn |>
+  mutate(value_rebased = value / oecd_anchor * bis_anchor)
+
+reer_bis_idn <- reer_bis_idn |>
+  mutate(value_rebased = value)
+
+reer_idn_spliced <- bind_rows(
+  reer_oecd_idn |> 
+    select(date, value = value_rebased, source, frequency),
+  reer_bis_idn |> 
+    select(date, value = value_rebased, source, frequency)
+) |>
+  arrange(date) %>%
+  mutate(country = "IDN")
+
+```
+
+now we begin to combine the spliced data with the panel 
+
+```{r}
+reer_idn_spliced <- reer_idn_spliced |>
+  mutate(TIME_PERIOD = format(date, "%Y-M%m"))
+
+# Build a complete monthly calendar for 1987-2017 to interpolate onto
+full_months <- tibble(
+  TIME_PERIOD = format(
+    seq(as.Date(START_DATE), as.Date(END_DATE), by = "month"), 
+    "%Y-M%m")
+)
+
+idn_reer_monthly <- full_months |>
+  left_join(reer_idn_spliced |> 
+  select(TIME_PERIOD, value), by = "TIME_PERIOD") |>
+  mutate(value_interp = zoo::na.approx(value, na.rm = FALSE)) |>
+  select(TIME_PERIOD, reer_cpi_new = value_interp)
+
+```
+mapping onto panel wide with na_aprox from the zoo package
+
+```{r}
+panel_wide <- panel_wide |>
+  left_join(idn_reer_monthly, by = "TIME_PERIOD") |>
+  mutate(reer_cpi = if_else(COUNTRY == "IDN", coalesce(reer_cpi, reer_cpi_new), reer_cpi)) |>
+  select(-reer_cpi_new)
+```
+
+confirming that the fill worked
+
+```{r}
+panel_wide |>
+  filter(COUNTRY == "IDN") |>
+  summarise(n = n(), n_filled = sum(!is.na(reer_cpi)), first_filled = min(TIME_PERIOD[!is.na(reer_cpi)]))
+
+
+summary_wide(panel_wide)
+```
+Thailand has the same REER gap. FRED carries the BIS series from 1994 onwards. It is rebased to 2010 = 100 to match the IMF series, and an OECD quarterly series is attempted for the pre 1994 period.
+
+```{r}
+reer_bis_tha <- fredr(
+  series_id = "RBTHBIS",
+  observation_start = as.Date("1994-01-01"),
+  observation_end = as.Date("2017-12-31")
+) |>
+  mutate(value = value / mean(value[format(date, "%Y") == "2010"]) * 100) |>
+  mutate(source = "BIS", frequency = "monthly")
+
+reer_oecd_tha <- tryCatch(
+  fredr(
+    series_id = "CCRETT01THQ661N",
+    observation_start = as.Date("1980-01-01"),
+    observation_end = as.Date("1993-12-31")
+  ),
+  error = function(e) {
+    message("OECD series for THA unavailable on FRED, BIS only from 1994")
+    NULL
+  }
+)
+
+if (!is.null(reer_oecd_tha)) {
+  reer_oecd_tha <- reer_oecd_tha |>
+    mutate(
+      value = value / value[date == max(date)] * reer_bis_tha$value[1],
+      source = "OECD", frequency = "quarterly"
+    )
+}
+
+reer_tha_spliced <- bind_rows(reer_oecd_tha, reer_bis_tha) |>
+  arrange(date) |>
+  mutate(TIME_PERIOD = format(date, "%Y-M%m"))
+
+tha_reer_monthly <- full_months |>
+  left_join(reer_tha_spliced |>
+  select(TIME_PERIOD, value), by = "TIME_PERIOD") |>
+  mutate(value_interp = zoo::na.approx(value, na.rm = FALSE)) |>
+  select(TIME_PERIOD, reer_cpi_tha = value_interp)
+
+panel_wide <- panel_wide |>
+  left_join(tha_reer_monthly, by = "TIME_PERIOD") |>
+  mutate(reer_cpi = if_else(COUNTRY == "THA", coalesce(reer_cpi, reer_cpi_tha), reer_cpi)) |>
+  select(-reer_cpi_tha)
+
+panel_wide |>
+  filter(COUNTRY == "THA") |>
+  summarise(n = n(), n_filled = sum(!is.na(reer_cpi)), first_filled = min(TIME_PERIOD[!is.na(reer_cpi)]))
+```
+
+# Data Cleaning and Sanity Checks {.chapter}
+sanity checks. We can plot an animated graph that cycles between the countries and checks if the data lines up. 
+
+# Cleaning {-}
+to start its best we begin by cleaning the data for easy plotting. such as handling dates. and finding the final list of missing values 
+
+```{r}
+panel_wide <- panel_wide |>
+  mutate(date = as.Date(paste0(
+    substr(TIME_PERIOD, 1, 4), "-",
+    substr(TIME_PERIOD, 7, 8), "-01"
+  )))
+
+panel_wide <- panel_wide |>
+  filter(date >= as.Date(START_DATE)) |>
+  group_by(COUNTRY) |>
+  complete(date = seq(min(date), max(date), by = "month")) |>
+  mutate(TIME_PERIOD = format(date, "%Y-M%m")) |>
+  arrange(date, .by_group = TRUE) |>
+  mutate(across(
+    c(reer_cpi, fx_usd_eop, net_foreign_assets, m2_broad_money),
+    ~ zoo::na.approx(.x, na.rm = FALSE, maxgap = 3)
+  )) |>
+  ungroup()
+
+nacheck <- panel_wide |>
+  group_by(COUNTRY) |>
+  summarise(across(everything(), ~ sum(is.na(.))))
+
+natable <- panel_wide |>
+  filter(COUNTRY == "PHL", if_any(everything(), is.na))
+
+print(natable, n = Inf, width = Inf)
+```
+
+After thorugh research its clear the only avenue for filling the gaps in Thailand will be to rebase from a narrower bruegel.org estimates. this will require further research since unlike the BIS FRED, OECD, IMF and WORLD bank data rebasing the same will be hard. we will need to be more prudent in our methodology. hence 
+
+```{r}
+rdf <- panel_wide |>
+  filter(COUNTRY != "THA", date <= as.Date("2007-12-01")) |>
+  drop_na() |>
+  arrange(COUNTRY, date)
+
+rdf |>
+  group_by(COUNTRY) |>
+  summarise(first_obs = min(date), last_obs = max(date), n_obs = n()) #for my own sanity because the enviroment tab is pretty much filled 
+
+rm(list = setdiff(ls(), c("rdf", "summary_wide", "panel_wide")))
+gc()
+
+summary_wide(rdf, rdf$COUNTRY)
+```
+
+# Testing {.chapter}
+
+We now begin testing and analysis in service of future agent based models. Our agent based model will be a bahvioural model of Banks in these countries and their changing patterns of investment relevant to macroeconomic changes. To that end we will need to first confirm the relationships, normality and significance of these variables to the Crisis
+
+```{r}
+pw <- rdf |>
+  arrange(COUNTRY, date) |>
+  group_by(COUNTRY) |>
+  mutate(
+    res_usd = fx_reserves / fx_usd_eop,
+
+    # monthly changes (positive dl_fx = depreciation)
+    dl_fx = log(fx_usd_eop) - lag(log(fx_usd_eop)),
+    dl_res = log(res_usd) - lag(log(res_usd)),
+
+    # predictors, lagged one month so they come before the stress event
+    reer_gap_l1 = lag(log(reer_cpi) - log(rollmeanr(reer_cpi, 36, fill = NA))),
+    credit_g12_l1 = lag(log(private_credit) - lag(log(private_credit), 12)),
+    m2_res_l1 = lag(log(m2_broad_money / fx_reserves)),
+    res_g6_l1 = lag(log(res_usd) - lag(log(res_usd), 6))
+  ) |>
+  ungroup()
+```
+
+# Time series Tests {-}
+we check the following hypothesis
+- Null Hypothesis ($H_0$): The series has a unit root (is non-stationary).
+- Alternative Hypothesis ($H_1$): The series does not have a unit root (is stationary).
+
+```{r}
+pw |>
+  group_by(COUNTRY) |>
+  summarise(
+    adf_level_p = adf.test(na.omit(log(fx_usd_eop)))$p.value,
+    adf_diff_p  = adf.test(na.omit(dl_fx))$p.value
+  )
+```
+
+The Augmented Dickey-Fuller (ADF) test results indicate that exchange rates for Indonesia (IDN), Malaysia (MYS), and the Philippines (PHL) are non-stationary at levels but become stationary after first-differencing. This confirms that the exchange rate series for all three countries are $I(1)$ processes (Integrated of order 1).
+
+
+# Causality tests{.chapter}
+Normally for Causality testing we would do something like t tests. however we are working with time series data which is stationary at the first order. Thus we will attempt a *Granger causality test*
+
+this is effectively a t test, but for lagged ols. 
+
+```{r}
+countries <- c("IDN", "MYS", "PHL")
+fx_wide <- pw |>
+  dplyr::select(date, COUNTRY, dl_fx) |> #using direct callouts since multiple packages are claiming `select`
+  pivot_wider(names_from = COUNTRY, values_from = dl_fx) |>
+  drop_na()
+
+#using the vars package we can test the optimal lag length for VAR modelling (which is what we will use given its ts data)
+
+VARselect(fx_wide[, countries], lag.max = 12, type = "const")$selection
+```
+- Interpretaion 
+based of the AIC value of 9 and SC value of 1 we understand that AIC ($p = 9$) prioritizes minimizing overall forecast error variance by capturing subtle, higher-order lag relationships. 
+
+on the other hand SC  at 1 indicates that a single lag caputres the majority of a predictable linear structure. we will utilise this for our analysis
+
+Running the test we create a custome helper function that will check the grid of country pairs across 2 time periods, pre and post Crisis
+
+we split the data into pre 1997 and full sample. july 1997 is considered the inflection point. we want to isolate the data preceding it to see the behaviour of the markets pre and post that. the pre acting as the normal, peaceful market.
+```{r}
+p <- 1
+
+pairs <- expand_grid(cause = countries, effect = countries) |>
+  filter(cause != effect) # this creates the pairs
+
+run_granger_pair <- function(dat, cause, effect, p) {
+  g <- grangertest(as.formula(paste(effect, "~", cause)), order = p, data = dat)
+  tibble(cause = cause, effect = effect, F_stat = g$F[2], p_value = g$`Pr(>F)`[2])
+} #function to apply granger 
+
+
+granger_all <- bind_rows(
+  "1980s-1999" = pmap_dfr(pairs, ~ run_granger_pair(fx_wide, ..1, ..2, p)),
+  "pre-July 1997" = pmap_dfr(pairs, ~ run_granger_pair(filter(fx_wide, date < "1997-07-01"), ..1, ..2, p)),
+  .id = "sample"
+) |>
+  mutate(
+    sig_5pct = p_value < 0.05,
+    p_bonf   = pmin(p_value * 6, 1)
+  )
+
+print(granger_all, n = Inf, width = Inf)
+```
+- Interpretaion
+taking the cross border granger causality results paint a promising picture to our analysis. as can be noted, pre july 1997 there is no significance of causality between the exchange rates of the countries
+
+this result was the expected hypothesis. it confirms the isolatory nature of the functioning of the cross border fixed exchange rates. there was no price discovery between the regimes and as such there was no influence between each other.
+
+the story changes when we take the entire sample intro consideration, with the 1980-1999 period showing relatively heavy confluence between the markets (save for Indonesia and Philippines). this indicates the transition from rigid managed exchange rate regimes to flexible market dynamics during the 1997–1998 Asian Financial Crisis catalyzed rapid cross-border financial spillovers.
+
+# Logit model{.chapter}
+We can create a logit based early warning system using logistic regression to assess how shrinking fundamentals such as forex and booming crid can causes crisises.
+
+we do this by defining the stres months. in our case a stress month is when a currency value drops a lot or if forex reduces by a lot. 
+```{r}
+TRAIN_END <- as.Date("1996-12-01")
+
+# here k is a scaling factor. were weight the deviations in forex against forex reserves since the absolute deviation in reserve changes is much higher and might dominate. this is better than taking log since we deal in negatives
+emp_params <- pw |>
+  filter(date <= TRAIN_END) |>
+  group_by(COUNTRY) |>
+  summarise(k = sd(dl_fx, na.rm = TRUE) / sd(dl_res, na.rm = TRUE), .groups = "drop")
+
+pw <- pw |>
+  left_join(emp_params, by = "COUNTRY") |>
+  mutate(emp = dl_fx - k * dl_res) |>
+  group_by(COUNTRY) |>
+  mutate(
+    emp_mu = mean(emp[date <= TRAIN_END], na.rm = TRUE),
+    emp_sd = sd(emp[date <= TRAIN_END], na.rm = TRUE),
+    stress = as.integer(emp > emp_mu + 1.5 * emp_sd)
+  ) |>
+  ungroup()
+
+#now to see the stress months by country
+pw |>
+  group_by(COUNTRY, period = ifelse(date <= TRAIN_END, "train", "test")) |>
+  summarise(n = sum(!is.na(stress)), stress_months = sum(stress, na.rm = TRUE), .groups = "drop")
+```
+now to make the actual logit model with the stress months identified as the the dependent logistic variable 
+
+independents are: 
+
+```{r}
+model_df <- pw |>
+  dplyr::select(COUNTRY, date, stress, ends_with("_l1")) |>
+  drop_na()
+
+
+train <- filter(model_df, date <= TRAIN_END)
+test <- filter(model_df, date > TRAIN_END)
+
+
+fit <- glm(
+  stress ~ reer_gap_l1 + credit_g12_l1 + m2_res_l1 + res_g6_l1 + COUNTRY,
+  data = train,
+  family = binomial
+)
+
+
+summary(fit)
+
+cbind(OR = exp(coef(fit)), exp(confint.default(fit)))
+```
+- Interpretaion
+
+The output is significant in its insignificance. Our null hypothesis that the variables have no effect on the stress months is failed at being rejected. This is an example that conforms to krugman's theory that macroeconomic fundamentals were not to blame. instead this was a heuristic issue
+
+# Graphical Representation {-}
+
+## Causality matrix
+Graphical Representation of our causality grid facet wrapped to show the difference between the two samples, the pre 1997 on the right and full sample on the left
+```{r}
+ggplot(granger_all, aes(x = cause, y = effect, fill = F_stat)) + geom_tile(color = "white") + geom_text(aes(label = ifelse(sig_5pct, paste0(round(F_stat, 1), "*"), round(F_stat, 1)))) +
+  facet_wrap(~sample) + scale_fill_gradient(low = "grey", high = "red") + labs(title = "Granger causality of monthly depreciation", x = "Cause", y = "Effect", fill = "F") + theme_minimal()
+```
+
+
+## 
