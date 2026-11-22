@@ -1,1 +1,5 @@
 # dissertation
+
+## Initial data analysis
+
+The `Initial data analysis/` folder contains the raw R Markdown workflow (`25060242153_rcode_raw.rmd`) and its knitted output used for the early empirical stage of the dissertation, *Agent Based Modeling approach to forecasting Asian Financial Crisis*. The analysis pulls and harmonizes monthly macro-financial data for Thailand, Indonesia, Malaysia, and the Philippines from IMF and FRED sources (REER, bilateral USD exchange rate, reserves, net foreign assets, M2, private credit, and reserve money), fills gaps through source splicing/rebasing and limited interpolation, and performs sanity checks. It then constructs stress indicators and runs exploratory time-series diagnostics: Augmented Dickey-Fuller stationarity tests, pairwise Granger causality tests for pre-crisis and full-sample periods, and a logistic early-warning model relating lagged fundamentals to exchange-market stress months. These results are intended to inform the behavioral assumptions of the later agent-based model.
