@@ -1,6 +1,6 @@
 # Agent-Based Modelling Approach to Forecasting the Asian Financial Crisis
 
-This project is an early empirical/pre-modeling pipeline for a dissertation on agent-based modelling (ABM) approaches to forecasting the Asian Financial Crisis (AFC). It assembles monthly macro-financial data for Thailand, Indonesia, Malaysia, and the Philippines, harmonizes gaps in real effective exchange rates, and constructs exchange-market stress indicators. The cleaned data are then used for exploratory diagnostics—ADF stationarity tests, pairwise Granger causality tests, and a logistic early-warning model—to assess whether macro fundamentals signaled stress before/during the AFC and to inform behavioral assumptions for later ABM work.
+This project is an early empirical/pre-modeling pipeline for a dissertation on agent-based modelling (ABM) approaches to forecasting the Asian Financial Crisis (AFC). It assembles monthly macro-financial data for Thailand, Indonesia, Malaysia, and the Philippines, harmonizes gaps in real effective exchange rates, and constructs exchange-rate change measures. The cleaned data are then used for exploratory diagnostics—ADF stationarity tests, pairwise Granger causality tests, and VAR lag selection—to assess whether macro fundamentals moved with exchange-market conditions before/during the AFC and to inform behavioral assumptions for later ABM work.
 
 ## Data sources
 
@@ -29,9 +29,8 @@ This project is an early empirical/pre-modeling pipeline for a dissertation on a
 | `R/03_clean.R` | Handles dates, completes monthly grid, interpolates short gaps (`maxgap=3`), builds model dataset `rdf` | `data/processed/rdf.rds`, `outputs/tables/na_check_by_country.csv`, `outputs/tables/phl_na_rows.csv`, `outputs/tables/rdf_summary_by_country.txt` |
 | `R/04_features.R` | Constructs `res_usd`, `dl_fx`, `dl_res`, lagged predictors (`reer_gap_l1`, `credit_g12_l1`, `m2_res_l1`, `res_g6_l1`) | `data/processed/pw.rds` |
 | `R/05_analysis_timeseries.R` | Runs ADF tests, VAR lag selection, pairwise Granger causality pre-July 1997 vs full sample | `outputs/tables/adf_results.csv`, `outputs/tables/varselect_selection.csv`, `outputs/tables/granger_all.csv` |
-| `R/06_analysis_logit.R` | Defines EMP stress months, train/test split at `TRAIN_END`, fits logit early-warning model, exports odds ratios | `outputs/tables/stress_month_counts.csv`, `outputs/tables/logit_coefficients.csv`, `outputs/tables/logit_odds_ratios.csv`, `outputs/tables/logit_model_summary.txt`, `data/processed/logit_model.rds` |
 | `R/07_visualisation.R` | Builds Granger causality heatmap; easy to extend with additional plots | `outputs/figures/granger_causality_heatmap.png` |
-| `R/run_all.R` | Sources scripts 00-07 in order for one-command execution | All pipeline artifacts |
+| `R/run_all.R` | Sources scripts 00-05 and 07 in order for one-command execution | All pipeline artifacts |
 
 ## How to run
 
@@ -61,7 +60,6 @@ This project is an early empirical/pre-modeling pipeline for a dissertation on a
 ## Findings (from the original analysis)
 
 - **Granger causality**: Pre-July 1997, there is no significant cross-border causality between exchange-rate depreciation series, consistent with isolatory managed/fixed exchange-rate regimes. In the full 1980s-1999 sample, there is relatively heavy confluence between markets (save for Indonesia and Philippines), indicating that transition to more flexible dynamics during the 1997–1998 AFC catalyzed spillovers.
-- **Logit early-warning model**: The model output is significant in its insignificance: the null hypothesis that the selected lagged fundamentals have no effect on stress months is not rejected. This is consistent with Krugman's argument that macroeconomic fundamentals were not to blame; instead this was a heuristic issue.
 
 These findings are reported as exploratory evidence for later ABM assumptions and should not be over-interpreted beyond the original assignment scope.
 
@@ -69,7 +67,6 @@ These findings are reported as exploratory evidence for later ABM assumptions an
 
 - **Thailand excluded from model dataset (`rdf`)**: Thailand has REER/data-gap issues in the early period; after cleaning, `rdf` excludes `THA` and keeps `IDN`, `MYS`, `PHL`.
 - **Sample end for model dataset**: `rdf` is filtered to `date <= 2007-12-01` and then `drop_na()` is applied.
-- **Stress definition is rule-based**: stress months are defined by EMP exceeding training-period mean + 1.5 SD, with training ending at `1996-12-01`.
 - **Granger lag choice**: VAR selection reports AIC/SC criteria; the analysis uses `p = 1` as in the raw assignment.
 - **Raw assignment provenance**: the original working Rmd is preserved at `archive/raw_assignment.Rmd`; methodology/parameters were kept unchanged during refactor.
 
